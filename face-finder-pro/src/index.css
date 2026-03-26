@@ -1,0 +1,154 @@
+@import url('https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Rajdhani:wght@400;500;600;700&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background: 220 60% 3%;
+    --foreground: 214 30% 80%;
+
+    --card: 222 40% 6%;
+    --card-foreground: 214 30% 80%;
+
+    --popover: 222 40% 6%;
+    --popover-foreground: 214 30% 80%;
+
+    --primary: 195 100% 50%;
+    --primary-foreground: 220 60% 3%;
+
+    --secondary: 222 30% 14%;
+    --secondary-foreground: 214 30% 80%;
+
+    --muted: 222 25% 20%;
+    --muted-foreground: 222 20% 45%;
+
+    --accent: 195 100% 50%;
+    --accent-foreground: 220 60% 3%;
+
+    --destructive: 348 100% 59%;
+    --destructive-foreground: 0 0% 100%;
+
+    --border: 222 30% 16%;
+    --input: 222 30% 16%;
+    --ring: 195 100% 50%;
+
+    --radius: 0.5rem;
+
+    /* Custom tokens */
+    --safe: 158 100% 45%;
+    --safe-foreground: 158 100% 10%;
+    --medium: 36 90% 55%;
+    --medium-foreground: 36 90% 10%;
+    --danger: 348 100% 59%;
+    --danger-foreground: 0 0% 100%;
+    --cyan: 195 100% 50%;
+    --panel: 222 40% 6%;
+    --panel-border: 222 30% 16%;
+
+    --font-mono: 'Share Tech Mono', monospace;
+    --font-ui: 'Rajdhani', sans-serif;
+
+    --sidebar-background: 0 0% 98%;
+    --sidebar-foreground: 240 5.3% 26.1%;
+    --sidebar-primary: 240 5.9% 10%;
+    --sidebar-primary-foreground: 0 0% 98%;
+    --sidebar-accent: 240 4.8% 95.9%;
+    --sidebar-accent-foreground: 240 5.9% 10%;
+    --sidebar-border: 220 13% 91%;
+    --sidebar-ring: 217.2 91.2% 59.8%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply bg-background text-foreground;
+    font-family: var(--font-ui);
+  }
+
+  body::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    pointer-events: none;
+    z-index: 999;
+    background: repeating-linear-gradient(
+      0deg,
+      transparent,
+      transparent 3px,
+      hsla(var(--cyan) / 0.012) 3px,
+      hsla(var(--cyan) / 0.012) 4px
+    );
+  }
+
+  body::after {
+    content: '';
+    position: fixed;
+    inset: 0;
+    pointer-events: none;
+    z-index: 0;
+    background-image: linear-gradient(hsla(var(--cyan) / 0.025) 1px, transparent 1px),
+      linear-gradient(90deg, hsla(var(--cyan) / 0.025) 1px, transparent 1px);
+    background-size: 44px 44px;
+  }
+}
+
+@layer components {
+  .scanbar-anim {
+    animation: scanmove 2.5s linear infinite;
+  }
+
+  .icon-pulse {
+    animation: iconpulse 2.5s ease-in-out infinite;
+  }
+
+  .live-blink {
+    animation: blink 1s infinite;
+  }
+
+  .danger-pulse {
+    animation: dangerpulse 0.9s ease-in-out infinite;
+  }
+
+  .alert-flash {
+    animation: alertflash 0.6s ease-in-out infinite alternate;
+  }
+
+  .load-spin {
+    animation: spin 0.8s linear infinite;
+  }
+}
+
+@keyframes scanmove {
+  0% { top: 0; }
+  100% { top: 100%; }
+}
+
+@keyframes iconpulse {
+  0%, 100% { box-shadow: 0 0 0 0 hsla(var(--cyan) / 0.5); }
+  50% { box-shadow: 0 0 0 8px hsla(var(--cyan) / 0); }
+}
+
+@keyframes blink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.15; }
+}
+
+@keyframes dangerpulse {
+  0%, 100% { box-shadow: 0 0 28px hsla(var(--danger) / 0.22); }
+  50% { box-shadow: 0 0 52px hsla(var(--danger) / 0.45); }
+}
+
+@keyframes alertflash {
+  from { background: hsla(var(--danger) / 0.05); }
+  to { background: hsla(var(--danger) / 0.14); }
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
