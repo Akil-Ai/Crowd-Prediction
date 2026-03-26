@@ -54,13 +54,22 @@ function calculateOverlap(
 
   const intersectionArea = (xRight - xLeft) * (yBottom - yTop);
   const faceArea = faceBox.w * faceBox.h;
-  // Use percentage of face inside the body box
   return intersectionArea / faceArea;
 }
 
-export function usePersonDetection() {
-  const [modelLoaded, setModelLoaded] = useState(false);
-  const [modelError, setModelError] = useState<string | null>(null);
+// Global Singletons to share the exact same AI model across all 4 cameras simultaneously without Out-of-Memory crashes
+let globalCocoModel: cocoSsd.ObjectDetection | null = null;
+let globalModelPromise: Promise<void> | null = null;
+let globalModelError: string | null = null;
+
+interface UsePersonDetectionProps {
+  type: 'local' | 'ip';
+  url?: string;
+}
+
+export function usePersonDetection({ type, url }: UsePersonDetectionProps) {
+  const [modelLoaded, setModelLoaded] = useState(globalCocoModel !== null);
+  const [modelError, setModelError] = useState<string | null>(globalModelError);
   const [running, setRunning] = useState(false);
   const [personCount, setPersonCount] = useState(0);
   const [level, setLevel] = useState<DetectionLevel>('safe');
@@ -69,7 +78,7 @@ export function usePersonDetection() {
   const [logs, setLogs] = useState<LogEntry[]>([]);
   const [stats, setStats] = useState<SessionStats>({ safe: 0, medium: 0, danger: 0, peak: 0 });
 
-  const videoRef = useRef<HTMLVideoElement>(null);
+  const mediaRef = useRef<HTMLVideoElement | HTMLImageElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const runningRef = useRef(false);
@@ -78,7 +87,7 @@ export function usePersonDetection() {
   const lastFpsTimeRef = useRef(performance.now());
   const frameCountRef = useRef(0);
   const animFrameRef = useRef<number>(0);
-  const cocoModelRef = useRef<cocoSsd.ObjectDetection | null>(null);
+  const lastDetectTimeRef = useRef(0);
 
   const addLog = useCallback((message: string, logLevel: DetectionLevel | 'info' = 'info') => {
     const time = new Date().toTimeString().slice(0, 8);
@@ -87,22 +96,23 @@ export function usePersonDetection() {
 
   const loadModels = useCallback(async () => {
     try {
-      addLog('Loading TensorFlow.js backend...', 'info');
-      await tf.ready();
-
-      addLog('Loading COCO-SSD person detection model...', 'info');
-      const cocoPromise = cocoSsd.load({ base: 'mobilenet_v2' });
-
-      addLog('Loading Face-API SSD MobilenetV1...', 'info');
-      const facePromise = faceapi.nets.ssdMobilenetv1.loadFromUri(FACE_MODEL_URL);
-
-      const [cocoModel] = await Promise.all([cocoPromise, facePromise]);
-      cocoModelRef.current = cocoModel;
-
-      addLog('Both AI models (Face+Body) ready. Click START to begin.', 'info');
+      if (!globalModelPromise) {
+        globalModelPromise = (async () => {
+          await tf.ready();
+          const cocoPromise = cocoSsd.load({ base: 'mobilenet_v2' });
+          const facePromise = faceapi.nets.ssdMobilenetv1.loadFromUri(FACE_MODEL_URL);
+          const [cocoModel] = await Promise.all([cocoPromise, facePromise]);
+          globalCocoModel = cocoModel;
+        })();
+      }
+      
+      await globalModelPromise;
       setModelLoaded(true);
+      if (!globalCocoModel) throw new Error("Models did not load correctly");
+      // Don't duplicate logs for every grid, just log setup silently
     } catch (e: any) {
-      setModelError(e.message);
+      globalModelError = e.message;
+      setModelError(globalModelError);
       addLog('Model load failed: ' + e.message, 'danger');
     }
   }, [addLog]);
@@ -114,11 +124,32 @@ export function usePersonDetection() {
   const detectLoop = useCallback(async () => {
     if (!runningRef.current) return;
 
-    const video = videoRef.current;
+    const media = mediaRef.current;
     const canvas = canvasRef.current;
-    if (!video || !canvas || video.readyState < 2 || !cocoModelRef.current) {
+    
+    if (!media || !canvas || !globalCocoModel) {
       animFrameRef.current = requestAnimationFrame(detectLoop);
       return;
+    }
+    
+    // Check readiness for video or image
+    let mediaWidth = 0;
+    let mediaHeight = 0;
+    
+    if (media instanceof HTMLVideoElement) {
+       if (media.readyState < 2) {
+         animFrameRef.current = requestAnimationFrame(detectLoop);
+         return;
+       }
+       mediaWidth = media.videoWidth;
+       mediaHeight = media.videoHeight;
+    } else if (media instanceof HTMLImageElement) {
+       if (!media.complete || media.naturalWidth === 0) {
+         animFrameRef.current = requestAnimationFrame(detectLoop);
+         return;
+       }
+       mediaWidth = media.naturalWidth;
+       mediaHeight = media.naturalHeight;
     }
 
     fpsFramesRef.current++;
@@ -129,19 +160,29 @@ export function usePersonDetection() {
       lastFpsTimeRef.current = now;
     }
 
-    if (!detectingRef.current) {
+    // Dynamic throttle: IP streams can have higher latency naturally, reducing this threshold from 300ms to 120ms improves frame smoothness
+    const throttleTime = type === 'local' ? 100 : 150; 
+    
+    if (!detectingRef.current && now - lastDetectTimeRef.current > throttleTime) {
       detectingRef.current = true;
+      lastDetectTimeRef.current = now;
       frameCountRef.current++;
       setFrameCount(frameCountRef.current);
 
       try {
-        const scaleX = canvas.width / (video.videoWidth || canvas.width);
-        const scaleY = canvas.height / (video.videoHeight || canvas.height);
+        // Important: Update canvas resolution if video/img resolution changes
+        if (canvas.width !== mediaWidth || canvas.height !== mediaHeight) {
+           canvas.width = mediaWidth;
+           canvas.height = mediaHeight;
+        }
+
+        const scaleX = canvas.width / (mediaWidth || canvas.width);
+        const scaleY = canvas.height / (mediaHeight || canvas.height);
 
         // Run both models concurrently
         const [cocoResults, faceResults] = await Promise.all([
-          cocoModelRef.current.detect(video),
-          faceapi.detectAllFaces(video, new faceapi.SsdMobilenetv1Options({ minConfidence: 0.35 })),
+          globalCocoModel.detect(media),
+          faceapi.detectAllFaces(media, new faceapi.SsdMobilenetv1Options({ minConfidence: 0.35 })),
         ]);
 
         const bodyDetections = cocoResults
@@ -176,7 +217,6 @@ export function usePersonDetection() {
           faceDetections.forEach((face, fIdx) => {
             if (usedFaces.has(fIdx)) return;
             const overlap = calculateOverlap(face, body);
-            // If > 25% of face is inside body bounding box, they likely belong to same person
             if (overlap > 0.25 && overlap > highestOverlap) {
               highestOverlap = overlap;
               matchedFaceIdx = fIdx;
@@ -273,7 +313,8 @@ export function usePersonDetection() {
           addLog(count + ' individual(s) → ' + currentLevel.toUpperCase(), currentLevel);
         }
       } catch (e: any) {
-        addLog('Detection error: ' + e.message, 'danger');
+        // Just silent retry natively on error instead of spamming UI if MJPEG stutters
+        console.error("Detect Error:", e);
       }
       detectingRef.current = false;
     }
@@ -283,50 +324,68 @@ export function usePersonDetection() {
 
   const start = useCallback(async () => {
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: { width: { ideal: 1280 }, height: { ideal: 720 }, facingMode: 'user' },
-        audio: false,
-      });
-      streamRef.current = stream;
-      const video = videoRef.current;
-      if (video) {
-        video.srcObject = stream;
-        video.onloadedmetadata = () => {
-          const canvas = canvasRef.current;
-          if (canvas) {
-            canvas.width = video.videoWidth;
-            canvas.height = video.videoHeight;
-          }
-          addLog('Camera: ' + video.videoWidth + 'x' + video.videoHeight, 'info');
-        };
+      if (type === 'local') {
+        const stream = await navigator.mediaDevices.getUserMedia({
+          video: { width: { ideal: 1280 }, height: { ideal: 720 }, facingMode: 'user' },
+          audio: false,
+        });
+        streamRef.current = stream;
+        const video = mediaRef.current;
+        if (video instanceof HTMLVideoElement) {
+          video.srcObject = stream;
+          video.onloadedmetadata = () => {
+            const canvas = canvasRef.current;
+            if (canvas) {
+              canvas.width = video.videoWidth;
+              canvas.height = video.videoHeight;
+            }
+            video.play();
+            addLog('Webcam started — Dual Engine active.', 'info');
+          };
+        }
+      } else {
+        // MJPEG IP string handling
+        const img = mediaRef.current;
+        if (img instanceof HTMLImageElement && url) {
+           img.crossOrigin = "anonymous";
+           img.src = url;
+           addLog(`IP Camera started: ${url}`, 'info');
+        }
       }
 
       runningRef.current = true;
       setRunning(true);
       frameCountRef.current = 0;
-      addLog('Camera started — Dual Engine (Face+Body) active.', 'info');
       animFrameRef.current = requestAnimationFrame(detectLoop);
     } catch (err: any) {
-      addLog('Camera denied: ' + err.message, 'danger');
+      addLog('Camera denied/failed: ' + err.message, 'danger');
     }
-  }, [addLog, detectLoop]);
+  }, [addLog, detectLoop, type, url]);
 
   const stop = useCallback(() => {
     runningRef.current = false;
     setRunning(false);
     if (animFrameRef.current) cancelAnimationFrame(animFrameRef.current);
+    
     if (streamRef.current) {
       streamRef.current.getTracks().forEach((t) => t.stop());
       streamRef.current = null;
     }
-    const video = videoRef.current;
-    if (video) video.srcObject = null;
+    
+    const media = mediaRef.current;
+    if (media instanceof HTMLVideoElement) {
+       media.srcObject = null;
+    } else if (media instanceof HTMLImageElement) {
+       media.src = ''; 
+    }
+    
     const canvas = canvasRef.current;
     if (canvas) {
       const ctx = canvas.getContext('2d');
       ctx?.clearRect(0, 0, canvas.width, canvas.height);
     }
     setPersonCount(0);
+    setLevel('safe');
     addLog('Monitoring stopped.', 'info');
   }, [addLog]);
 
@@ -341,7 +400,7 @@ export function usePersonDetection() {
   }, []);
 
   return {
-    videoRef,
+    mediaRef,
     canvasRef,
     modelLoaded,
     modelError,

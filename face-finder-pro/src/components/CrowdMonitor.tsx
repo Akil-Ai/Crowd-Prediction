@@ -1,25 +1,36 @@
-import { useEffect, useState } from 'react';
-import { usePersonDetection, type DetectionLevel } from '@/hooks/usePersonDetection';
+import { useEffect, useState, useCallback } from 'react';
 import { useAuth } from '@/context/AuthContext';
+import CameraSlot from './CameraSlot';
 
-function CrowdMonitor() {
+export default function CrowdMonitor() {
   const { user, logout } = useAuth();
-  const {
-    videoRef, canvasRef, modelLoaded, modelError, running,
-    personCount, level, fps, frameCount, logs, stats, start, stop,
-  } = usePersonDetection();
-
   const [clock, setClock] = useState('--:--:--');
+  const [counts, setCounts] = useState<Record<string, number>>({});
+  const [levels, setLevels] = useState<Record<string, string>>({});
 
   useEffect(() => {
     const t = setInterval(() => setClock(new Date().toTimeString().slice(0, 8)), 1000);
     return () => clearInterval(t);
   }, []);
 
-  const levelLabel: Record<DetectionLevel, string> = { safe: 'SAFE', medium: 'MEDIUM', danger: 'DANGER' };
+  const handleUpdate = useCallback((id: string, count: number, level: string) => {
+    setCounts(prev => ({ ...prev, [id]: count }));
+    setLevels(prev => ({ ...prev, [id]: level }));
+  }, []);
+
+  const totalPeople = Object.values(counts).reduce((a, b) => a + b, 0);
+  
+  // Determine overall threat level based on individual cameras
+  const activeLevels = Object.values(levels);
+  const overallLevel = activeLevels.includes('danger') ? 'danger' : activeLevels.includes('medium') ? 'medium' : 'safe';
+  const levelLabel: Record<string, string> = { safe: 'SAFE', medium: 'MEDIUM', danger: 'DANGER' };
+
+  const dangerCams = Object.entries(levels)
+    .filter(([id, level]) => level === 'danger')
+    .map(([id]) => id.replace('cam', ''));
 
   return (
-    <div className="relative z-[1] max-w-[1080px] mx-auto px-3.5 pt-4 pb-10">
+    <div className="relative z-[1] max-w-[1400px] mx-auto px-4 pt-4 pb-10">
       {/* Header */}
       <header className="flex items-center justify-between py-3 border-b border-border mb-5">
         <div className="flex items-center gap-3">
@@ -32,8 +43,8 @@ function CrowdMonitor() {
             </svg>
           </div>
           <div>
-            <div className="text-[19px] font-bold tracking-[3px] text-foreground uppercase">AI Crowd Monitor</div>
-            <div className="font-mono text-[10px] text-cyan tracking-[2px] mt-0.5">DUAL ENGINE (FACE+BODY)</div>
+            <div className="text-[19px] font-bold tracking-[3px] text-foreground uppercase">AI Security Matrix</div>
+            <div className="font-mono text-[10px] text-cyan tracking-[2px] mt-0.5">4-GRID SURVEILLANCE</div>
           </div>
         </div>
         <div className="flex items-center gap-4">
@@ -48,165 +59,70 @@ function CrowdMonitor() {
         </div>
       </header>
 
-      {/* Grid */}
-      <div className="grid grid-cols-1 md:grid-cols-[1fr_320px] gap-4 items-start">
-        {/* Left - Camera */}
-        <div className="bg-panel border border-panel-border rounded-lg overflow-hidden">
-          <div className="flex items-center justify-between px-3.5 py-2 border-b border-panel-border bg-cyan/[0.025]">
-            <span className="font-mono text-[10px] tracking-[2.5px] text-cyan uppercase">CAMERA FEED · DUAL ENGINE</span>
-            <span className="font-mono text-[10px] text-muted-foreground border border-panel-border rounded-sm px-1.5 py-0.5">
-              {modelError ? 'ERROR' : !modelLoaded ? 'LOADING MODEL...' : running ? 'SCANNING' : 'READY'}
-            </span>
-          </div>
-
-          <div className="relative bg-black aspect-video overflow-hidden">
-            {/* Corner accents */}
-            <div className="absolute top-2.5 left-2.5 w-[18px] h-[18px] border-t-2 border-l-2 border-cyan z-[3]" />
-            <div className="absolute top-2.5 right-2.5 w-[18px] h-[18px] border-t-2 border-r-2 border-cyan z-[3]" />
-            <div className="absolute bottom-2.5 left-2.5 w-[18px] h-[18px] border-b-2 border-l-2 border-cyan z-[3]" />
-            <div className="absolute bottom-2.5 right-2.5 w-[18px] h-[18px] border-b-2 border-r-2 border-cyan z-[3]" />
-
-            {running && (
-              <div className="absolute left-0 right-0 h-0.5 z-[3] bg-gradient-to-r from-transparent via-cyan/50 to-transparent scanbar-anim" />
-            )}
-
-            {/* Loading overlay */}
-            {!modelLoaded && !modelError && (
-              <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-3.5 bg-background/95">
-                <div className="w-[46px] h-[46px] border-2 border-panel-border border-t-cyan rounded-full load-spin" />
-                <div className="font-mono text-[11px] tracking-[2px] text-cyan">LOADING AI MODEL...</div>
-              </div>
-            )}
-
-            {modelError && (
-              <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-3 bg-background/95">
-                <div className="font-mono text-[11px] tracking-[2px] text-danger">MODEL LOAD FAILED</div>
-              </div>
-            )}
-
-            {modelLoaded && !running && (
-              <div className="absolute inset-0 z-[5] flex flex-col items-center justify-center gap-3 text-muted-foreground font-mono text-[11px] tracking-[2px]">
-                <svg width="44" height="44" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1">
-                  <path d="M23 7l-7 5 7 5V7z" /><rect x="1" y="5" width="15" height="14" rx="2" />
-                </svg>
-                CLICK START — ALLOW CAMERA ACCESS
-              </div>
-            )}
-
-            <video ref={videoRef} autoPlay muted playsInline className="absolute inset-0 w-full h-full object-cover -scale-x-100" style={{ display: running ? 'block' : 'none' }} />
-            <canvas ref={canvasRef} className="absolute inset-0 w-full h-full pointer-events-none -scale-x-100" />
-          </div>
-
-          <div className="flex items-center justify-between px-3.5 py-1.5 bg-black/50 border-t border-panel-border font-mono text-[10px] text-muted-foreground">
-            <span>PEOPLE: <span className="text-cyan">{running ? personCount : '--'}</span></span>
-            <span>ENGINE: <span className="text-cyan">Dual Engine (Face+Body)</span></span>
-            <span>FPS: <span className="text-cyan">{running ? fps : '--'}</span></span>
-            <span>SCANS: <span className="text-cyan">{frameCount}</span></span>
-          </div>
-
-          <div className="flex gap-2 px-3.5 py-2.5">
-            <button
-              onClick={start}
-              disabled={!modelLoaded || running}
-              className="flex-1 py-2.5 px-1.5 border border-cyan text-cyan rounded font-ui text-xs font-bold tracking-[2px] uppercase bg-transparent transition-all hover:bg-cyan/10 hover:shadow-[0_0_14px_hsla(var(--cyan)/0.2)] disabled:opacity-25 disabled:cursor-not-allowed"
-            >
-              START CAMERA
-            </button>
-            <button
-              onClick={stop}
-              disabled={!running}
-              className="flex-1 py-2.5 px-1.5 border border-danger text-danger rounded font-ui text-xs font-bold tracking-[2px] uppercase bg-transparent transition-all hover:bg-danger/10 disabled:opacity-25 disabled:cursor-not-allowed"
-            >
-              STOP
-            </button>
-          </div>
+      {/* Main Layout */}
+      <div className="grid grid-cols-1 lg:grid-cols-[1fr_300px] gap-4 items-start">
+        
+        {/* Left - 4 Grid Cameras */}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-3 bg-panel border border-panel-border rounded-lg p-3">
+          <CameraSlot id="cam1" name="CAM 1: LOCAL SYSTEM" type="local" onUpdate={handleUpdate} />
+          <CameraSlot id="cam2" name="CAM 2: LOBBY (IP-101)" type="ip" url="http://192.168.1.101/video" onUpdate={handleUpdate} />
+          <CameraSlot id="cam3" name="CAM 3: REAR HALL (IP-102)" type="ip" url="http://192.168.1.102/video" onUpdate={handleUpdate} />
+          <CameraSlot id="cam4" name="CAM 4: PARKING (IP-103)" type="ip" url="http://192.168.1.103/video" onUpdate={handleUpdate} />
         </div>
 
-        {/* Right column */}
+        {/* Right column Dashboard */}
         <div className="flex flex-col gap-3.5">
           {/* Status card */}
           <div className={`p-5 rounded-lg border text-center transition-all duration-400 bg-panel ${
-            level === 'safe' ? 'border-safe shadow-[0_0_28px_hsla(var(--safe)/0.12)]' :
-            level === 'medium' ? 'border-medium shadow-[0_0_28px_hsla(var(--medium)/0.12)]' :
+            overallLevel === 'safe' ? 'border-safe shadow-[0_0_28px_hsla(var(--safe)/0.12)]' :
+            overallLevel === 'medium' ? 'border-medium shadow-[0_0_28px_hsla(var(--medium)/0.12)]' :
             'border-danger shadow-[0_0_28px_hsla(var(--danger)/0.22)] danger-pulse'
           }`}>
             <div className="flex items-center justify-between pb-2">
-              <span className="font-mono text-[10px] tracking-[2.5px] text-cyan uppercase">CROWD STATUS</span>
-              <span className={`font-mono text-[10px] border border-panel-border rounded-sm px-1.5 py-0.5 ${modelLoaded ? 'text-safe' : 'text-muted-foreground'}`}>
-                {modelLoaded ? 'MODEL READY' : 'LOADING'}
-              </span>
+              <span className="font-mono text-[10px] tracking-[2.5px] text-cyan uppercase">FACILITY STATUS</span>
             </div>
-            <div className="font-mono text-[10px] tracking-[3px] text-muted-foreground mb-2.5">PEOPLE DETECTED</div>
+            <div className="font-mono text-[10px] tracking-[3px] text-muted-foreground mb-2.5">TOTAL PEOPLE</div>
             <div className={`font-mono text-[80px] leading-none mb-1 transition-colors ${
-              level === 'safe' ? 'text-safe' : level === 'medium' ? 'text-medium' : 'text-danger'
-            }`}>{personCount}</div>
+              overallLevel === 'safe' ? 'text-safe' : overallLevel === 'medium' ? 'text-medium' : 'text-danger'
+            }`}>{totalPeople}</div>
             <div className="font-ui text-xs tracking-[3px] text-muted-foreground uppercase mb-3.5">INDIVIDUALS</div>
             <div className={`inline-block px-4 py-1 rounded-sm font-ui text-[17px] font-bold tracking-[4px] uppercase transition-all ${
-              level === 'safe' ? 'bg-safe/10 text-safe border border-safe/25' :
-              level === 'medium' ? 'bg-medium/10 text-medium border border-medium/25' :
+              overallLevel === 'safe' ? 'bg-safe/10 text-safe border border-safe/25' :
+              overallLevel === 'medium' ? 'bg-medium/10 text-medium border border-medium/25' :
               'bg-danger/10 text-danger border border-danger/30'
             }`}>
-              {running ? levelLabel[level] : 'STANDBY'}
+              {levelLabel[overallLevel]}
             </div>
+
+            {dangerCams.length > 0 && (
+              <div className="mt-4 pt-3 border-t border-danger/20 font-mono text-[10px] text-danger uppercase tracking-[2px]">
+                High Density At:<br/>
+                <span className="font-bold text-xs">CAMERA {dangerCams.join(', ')}</span>
+              </div>
+            )}
           </div>
 
           {/* Alert */}
-          {level === 'danger' && running && (
+          {overallLevel === 'danger' && (
             <div className="p-3.5 border border-danger rounded-md bg-danger/[0.07] font-mono text-[11px] text-danger leading-relaxed alert-flash">
               <div className="text-xs font-bold tracking-[3px] mb-1">⚠ DANGER ALERT</div>
-              HIGH CROWD DENSITY DETECTED!<br />
-              8 OR MORE PEOPLE IN FRAME.<br />
-              SECURITY RESPONSE REQUIRED.
+              HIGH CROWD DENSITY DETECTED ON CAMERA(S): {dangerCams.join(', ')}<br />
+              SECURITY RESPONSE REQUESTED.
             </div>
           )}
 
-          {/* Stats */}
-          <div className="bg-panel border border-panel-border rounded-lg overflow-hidden">
-            <div className="flex items-center justify-between px-3.5 py-2 border-b border-panel-border bg-cyan/[0.025]">
-              <span className="font-mono text-[10px] tracking-[2.5px] text-cyan uppercase">SESSION STATS</span>
-            </div>
-            <div className="grid grid-cols-2 gap-px bg-panel-border">
-              <div className="bg-panel p-3 text-center">
-                <div className="font-mono text-[22px] text-safe leading-none mb-0.5">{stats.safe}</div>
-                <div className="font-ui text-[10px] tracking-[2px] text-safe uppercase">Safe</div>
-              </div>
-              <div className="bg-panel p-3 text-center">
-                <div className="font-mono text-[22px] text-medium leading-none mb-0.5">{stats.medium}</div>
-                <div className="font-ui text-[10px] tracking-[2px] text-medium uppercase">Medium</div>
-              </div>
-              <div className="bg-panel p-3 text-center">
-                <div className="font-mono text-[22px] text-danger leading-none mb-0.5">{stats.danger}</div>
-                <div className="font-ui text-[10px] tracking-[2px] text-danger uppercase">Danger</div>
-              </div>
-              <div className="bg-panel p-3 text-center">
-                <div className="font-mono text-[22px] text-cyan leading-none mb-0.5">{stats.peak}</div>
-                <div className="font-ui text-[10px] tracking-[2px] text-muted-foreground uppercase">Peak</div>
-              </div>
-            </div>
-          </div>
-
-          {/* Log */}
-          <div className="bg-panel border border-panel-border rounded-lg overflow-hidden">
-            <div className="flex items-center justify-between px-3.5 py-2 border-b border-panel-border bg-cyan/[0.025]">
-              <span className="font-mono text-[10px] tracking-[2.5px] text-cyan uppercase">DETECTION LOG</span>
-              <span className="font-mono text-[10px] text-muted-foreground border border-panel-border rounded-sm px-1.5 py-0.5">{logs.length} entries</span>
-            </div>
-            <div className="py-1.5 max-h-40 overflow-y-auto">
-              {logs.map((log, i) => (
-                <div key={i} className="flex items-center gap-2 px-3.5 py-1 border-b border-panel-border/50 font-mono text-[10px]">
-                  <div className={`w-1.5 h-1.5 rounded-full shrink-0 ${
-                    log.level === 'safe' ? 'bg-safe' : log.level === 'medium' ? 'bg-medium' : log.level === 'danger' ? 'bg-danger' : 'bg-cyan'
-                  }`} />
-                  <span className="text-muted-foreground min-w-[56px]">{log.time}</span>
-                  <span className="text-foreground flex-1">{log.message}</span>
-                </div>
-              ))}
-            </div>
+          {/* Info Panel */}
+          <div className="bg-panel border border-panel-border rounded-lg overflow-hidden p-4">
+            <h3 className="font-mono text-[10px] tracking-[2.5px] text-cyan uppercase mb-3 border-b border-panel-border pb-2">Camera Configuration</h3>
+            <p className="text-xs text-muted-foreground mb-2">
+              <strong>Local System:</strong> Uses connected USB webcam. Automatically prompts for permission.
+            </p>
+            <p className="text-xs text-muted-foreground">
+              <strong>IP Cameras:</strong> Configured for MJPEG stream formats over standard HTTP connections across local area network.
+            </p>
           </div>
         </div>
       </div>
     </div>
   );
 }
-
-export default CrowdMonitor;
