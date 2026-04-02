@@ -105,7 +105,7 @@ export function usePersonDetection({ type, url }: UsePersonDetectionProps) {
           globalCocoModel = cocoModel;
         })();
       }
-      
+
       await globalModelPromise;
       setModelLoaded(true);
       if (!globalCocoModel) throw new Error("Models did not load correctly");
@@ -126,16 +126,16 @@ export function usePersonDetection({ type, url }: UsePersonDetectionProps) {
 
     const media = mediaRef.current;
     const canvas = canvasRef.current;
-    
+
     if (!media || !canvas || !globalCocoModel) {
       animFrameRef.current = requestAnimationFrame(detectLoop);
       return;
     }
-    
+
     // Check readiness for video or image
     let mediaWidth = 0;
     let mediaHeight = 0;
-    
+
     if (media instanceof HTMLVideoElement) {
        if (media.readyState < 2) {
          animFrameRef.current = requestAnimationFrame(detectLoop);
@@ -160,9 +160,10 @@ export function usePersonDetection({ type, url }: UsePersonDetectionProps) {
       lastFpsTimeRef.current = now;
     }
 
-    // Dynamic throttle: IP streams can have higher latency naturally, reducing this threshold from 300ms to 120ms improves frame smoothness
-    const throttleTime = type === 'local' ? 100 : 150; 
-    
+    // Crowd detection models are heavy. Running them every 100ms on 4+ cameras will severely lag the UI thread.
+    // Increasing throttle to 400ms (~2.5 FPS per camera) drastically improves rendering smoothness.
+    const throttleTime = 400; 
+
     if (!detectingRef.current && now - lastDetectTimeRef.current > throttleTime) {
       detectingRef.current = true;
       lastDetectTimeRef.current = now;
@@ -348,7 +349,8 @@ export function usePersonDetection({ type, url }: UsePersonDetectionProps) {
         const img = mediaRef.current;
         if (img instanceof HTMLImageElement && url) {
            img.crossOrigin = "anonymous";
-           img.src = url;
+           const proxyUrl = `http://localhost:3001/api/proxy-stream?url=${encodeURIComponent(url)}`;
+           img.src = proxyUrl;
            addLog(`IP Camera started: ${url}`, 'info');
         }
       }
@@ -366,19 +368,19 @@ export function usePersonDetection({ type, url }: UsePersonDetectionProps) {
     runningRef.current = false;
     setRunning(false);
     if (animFrameRef.current) cancelAnimationFrame(animFrameRef.current);
-    
+
     if (streamRef.current) {
       streamRef.current.getTracks().forEach((t) => t.stop());
       streamRef.current = null;
     }
-    
+
     const media = mediaRef.current;
     if (media instanceof HTMLVideoElement) {
        media.srcObject = null;
     } else if (media instanceof HTMLImageElement) {
        media.src = ''; 
     }
-    
+
     const canvas = canvasRef.current;
     if (canvas) {
       const ctx = canvas.getContext('2d');

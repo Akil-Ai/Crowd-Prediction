@@ -7,6 +7,12 @@ export default function CrowdMonitor() {
   const [clock, setClock] = useState('--:--:--');
   const [counts, setCounts] = useState<Record<string, number>>({});
   const [levels, setLevels] = useState<Record<string, string>>({});
+  const [cameras, setCameras] = useState([
+    { id: 'cam1', name: 'CAM 1: LOCAL SYSTEM', type: 'local', url: '' },
+    { id: 'cam2', name: 'CAM 2: LOBBY (IP-101)', type: 'ip', url: 'http://192.168.1.101/video' },
+    { id: 'cam3', name: 'CAM 3: REAR HALL (IP-102)', type: 'ip', url: 'http://192.168.1.102/video' },
+    { id: 'cam4', name: 'CAM 4: PARKING (IP-103)', type: 'ip', url: 'http://192.168.1.103/video' }
+  ]);
 
   useEffect(() => {
     const t = setInterval(() => setClock(new Date().toTimeString().slice(0, 8)), 1000);
@@ -17,6 +23,18 @@ export default function CrowdMonitor() {
     setCounts(prev => ({ ...prev, [id]: count }));
     setLevels(prev => ({ ...prev, [id]: level }));
   }, []);
+
+  const handleAddCamera = () => {
+    const name = window.prompt("Enter Camera Name (e.g., CAM 5: FRONT GATE):");
+    if (!name) return;
+    
+    // Defaulting to IP Camera for dynamically added cameras
+    const url = window.prompt("Enter Camera Stream URL (e.g., http://192.168.1.104/video):");
+    if (!url) return;
+
+    const newId = `cam${cameras.length + 1}`;
+    setCameras(prev => [...prev, { id: newId, name, type: 'ip', url }]);
+  };
 
   const totalPeople = Object.values(counts).reduce((a, b) => a + b, 0);
   
@@ -44,7 +62,7 @@ export default function CrowdMonitor() {
           </div>
           <div>
             <div className="text-[19px] font-bold tracking-[3px] text-foreground uppercase">AI Security Matrix</div>
-            <div className="font-mono text-[10px] text-cyan tracking-[2px] mt-0.5">4-GRID SURVEILLANCE</div>
+            <div className="font-mono text-[10px] text-cyan tracking-[2px] mt-0.5">MULTI-GRID SURVEILLANCE</div>
           </div>
         </div>
         <div className="flex items-center gap-4">
@@ -62,12 +80,26 @@ export default function CrowdMonitor() {
       {/* Main Layout */}
       <div className="grid grid-cols-1 lg:grid-cols-[1fr_300px] gap-4 items-start">
         
-        {/* Left - 4 Grid Cameras */}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-3 bg-panel border border-panel-border rounded-lg p-3">
-          <CameraSlot id="cam1" name="CAM 1: LOCAL SYSTEM" type="local" onUpdate={handleUpdate} />
-          <CameraSlot id="cam2" name="CAM 2: LOBBY (IP-101)" type="ip" url="http://192.168.1.101/video" onUpdate={handleUpdate} />
-          <CameraSlot id="cam3" name="CAM 3: REAR HALL (IP-102)" type="ip" url="http://192.168.1.102/video" onUpdate={handleUpdate} />
-          <CameraSlot id="cam4" name="CAM 4: PARKING (IP-103)" type="ip" url="http://192.168.1.103/video" onUpdate={handleUpdate} />
+        {/* Left - Multi Grid Cameras */}
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-2 xl:grid-cols-3 gap-3 bg-panel border border-panel-border rounded-lg p-3">
+          {cameras.map(cam => (
+            <CameraSlot 
+              key={cam.id} 
+              id={cam.id} 
+              name={cam.name} 
+              type={cam.type as 'local' | 'ip'} 
+              url={cam.url} 
+              onUpdate={handleUpdate} 
+            />
+          ))}
+          
+          <button
+            onClick={handleAddCamera}
+            className="flex flex-col items-center justify-center min-h-[250px] border-2 border-dashed border-panel-border rounded-lg bg-background/50 text-muted-foreground hover:text-cyan hover:border-cyan transition-all group"
+          >
+            <div className="text-4xl font-light mb-2 group-hover:scale-110 transition-transform">+</div>
+            <div className="font-mono text-[10px] tracking-widest uppercase">Add Camera</div>
+          </button>
         </div>
 
         {/* Right column Dashboard */}
